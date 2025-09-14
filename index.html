@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Interactive Banking Dashboard</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+:root{
+  --bg:#f4f6fb; --card:#ffffff; --accent:#2b6cb0; --muted:#6b7280;
+  --danger:#e53e3e; --success:#38a169;
+}
+*{box-sizing:border-box;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;}
+body{margin:0;background:var(--bg);color:#111;display:flex;min-height:100vh;padding:24px;flex-direction:column;}
+.container{max-width:1200px;margin:auto;width:100%;display:grid;grid-template-columns:340px 1fr;gap:20px;}
+.card{background:var(--card);border-radius:12px;padding:16px;box-shadow:0 6px 18px rgba(12,18,30,0.06);transition:0.3s;}
+.card:hover{box-shadow:0 10px 25px rgba(12,18,30,0.15);}
+h2{margin:0 0 12px 0;font-size:18px;color:var(--accent);}
+small{color:var(--muted);}
+.left .section{margin-bottom:14px;}
+.account-list{display:flex;flex-direction:column;gap:8px;max-height:360px;overflow:auto;padding-right:6px;}
+.acct{padding:12px;border-radius:8px;border:1px solid #e6eef9;display:flex;justify-content:space-between;align-items:center;cursor:pointer;transition:0.3s;}
+.acct:hover{background:#eef6ff;transform:translateX(4px);}
+.acct.active{background:linear-gradient(90deg,#eef6ff,#f9fbff);border-color:var(--accent);}
+.acct .meta{display:flex;flex-direction:column;}
+.acct .meta b{font-size:14px;}
+.acct .balance{transition:0.3s;}
+button, input, select{font-family:inherit;}
+.btn{background:var(--accent);color:white;padding:8px 12px;border-radius:8px;border:0;cursor:pointer;transition:0.2s;}
+.btn:hover{opacity:0.85;}
+.btn.secondary{background:#e6eef9;color:var(--accent);}
+.btn.danger{background:var(--danger);color:white;}
+input[type="number"], input[type="text"], select{padding:8px;border-radius:8px;border:1px solid #e6eef9;min-width:0;}
+.row{display:flex;gap:8px;align-items:center;}
+.obs-list{display:flex;flex-direction:column;gap:6px;margin-top:8px;}
+.history{max-height:240px;overflow:auto;margin-top:8px;display:flex;flex-direction:column;gap:6px;}
+.txn{padding:8px;border-radius:8px;font-size:13px;display:flex;justify-content:space-between;align-items:center;transition:0.3s;}
+.txn.deposit{background:#e6fffa;border:1px solid #38a169;color:#2f855a;}
+.txn.withdraw{background:#fff5f5;border:1px solid #e53e3e;color:#c53030;}
+.txn.animate{animation:fadeSlide 0.6s ease;}
+@keyframes fadeSlide{0%{opacity:0;transform:translateX(-10px);}100%{opacity:1;transform:translateX(0);}}
+.grid{display:grid;grid-template-columns:1fr 360px;gap:16px;}
+.big{height:100%;}
+label{font-size:13px;color:var(--muted);}
+.muted{color:var(--muted);font-size:13px;}
+#toastContainer{position:fixed;top:20px;right:20px;z-index:1000;display:flex;flex-direction:column;}
+.toast{padding:10px 14px;border-radius:6px;color:white;margin-top:6px;opacity:0;transform:translateY(-10px);transition:0.3s;}
+.toast.info{background:var(--accent);}
+.toast.success{background:var(--success);}
+.toast.danger{background:var(--danger);}
+@media(max-width:900px){.container{grid-template-columns:1fr;}.grid{grid-template-columns:1fr;}}
+canvas{background:#f9fbff;border-radius:12px;padding:12px;}
+.flash{animation:flashBalance 0.6s ease;}
+@keyframes flashBalance{0%{background-color:yellow;}100%{background-color:transparent;}}
+</style>
+</head>
+<body>
+<div id="toastContainer"></div>
+<div class="container">
+  <div class="left">
+    <div class="card section">
+      <h2>Accounts</h2>
+      <small>Create and select accounts</small>
+      <div id="accounts" class="account-list" style="margin-top:12px"></div>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <input id="newName" placeholder="Name (e.g., John Doe)" />
+        <select id="newType">
+          <option value="savings">Savings</option>
+          <option value="fixed">Fixed Deposit</option>
+          <option value="current">Current</option>
+        </select>
+        <button id="createAcct" class="btn">Create</button>
+      </div>
+    </div>
+    <div class="card section">
+      <h2>Observers</h2>
+      <small>Subscribe notifications</small>
+      <div class="obs-list" id="obsControls">
+        <label><input type="checkbox" data-obs="email" /> Email</label>
+        <label><input type="checkbox" data-obs="sms" /> SMS</label>
+        <label><input type="checkbox" data-obs="app" /> Mobile App</label>
+      </div>
+    </div>
+    <div class="card section">
+      <h2>Transaction Manager</h2>
+      <div class="row" style="margin-top:8px">
+        <button id="undoBtn" class="btn secondary">Undo Last</button>
+        <button id="clearHistory" class="btn secondary">Clear History</button>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card big">
+      <h2>Account Details</h2>
+      <div id="detailPanel"><div class="muted">Select or create an account on the left.</div></div>
+    </div>
+
+    <div class="grid" style="margin-top:16px">
+      <div class="card">
+        <h2>Operations</h2>
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+          <input id="amountInput" type="number" placeholder="Amount" />
+          <select id="opType">
+            <option value="deposit">Deposit</option>
+            <option value="withdraw">Withdraw</option>
+            <option value="transfer">Transfer</option>
+          </select>
+          <select id="targetAcct" style="min-width:140px">
+            <option value="">-- target account --</option>
+          </select>
+          <button id="execBtn" class="btn">Execute</button>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+          <button id="calcInterest" class="btn secondary">Calculate Interest</button>
+          <button id="applyInterest" class="btn">Apply Interest</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Transaction History</h2>
+        <div id="history" class="history"></div>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-top:16px">
+      <div class="card">
+        <h2>Balance Chart</h2>
+        <canvas id="balanceChart" height="200"></canvas>
+      </div>
+      <div class="card">
+        <h2>Deposit/Withdrawal Chart</h2>
+        <canvas id="txnChart" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== Utilities =====
+const $ = id => document.getElementById(id);
+function fmtMoney(n){ return n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) }
+function showToast(msg,type="info"){ 
+  const t=document.createElement("div"); t.textContent=msg;
+  t.className="toast "+type; 
+  document.getElementById("toastContainer").appendChild(t);
+  requestAnimationFrame(()=>{ t.style.opacity=1; t.style.transform="translateY(0)"; });
+  setTimeout(()=>{ t.style.opacity=0; t.style.transform="translateY(-10px)"; setTimeout(()=>t.remove(),300)},300);
+}
+
+// ===== Observer Pattern =====
+class Observer { update(msg){} }
+class EmailObserver extends Observer { update(msg){ showToast(`[Email] ${msg}`,"info") } }
+class SMSObserver extends Observer { update(msg){ showToast(`[SMS] ${msg}`,"info") } }
+class AppObserver extends Observer { update(msg){ showToast(`[App] ${msg}`,"success") } }
+
+// ===== Strategy Pattern =====
+class InterestStrategy { calculate(balance){ return 0 } }
+class SavingsInterest extends InterestStrategy { calculate(balance){ return balance * 0.04 } }
+class FixedDepositInterest extends InterestStrategy { calculate(balance){ return balance * 0.07 } }
+class CurrentInterest extends InterestStrategy { calculate(balance){ return 0 } }
+
+// ===== Account =====
+let accountIdCounter=1;
+class Account {
+  #balance=0.0;
+  constructor(name,type,strategy){
+    this.id='AC'+(accountIdCounter++).toString().padStart(3,'0');
+    this.name=name; this.type=type; this.strategy=strategy;
+    this.observers=[]; this.transactions=[];
+  }
+  attach(o){ this.observers.push(o) }
+  detach(o){ this.observers=this.observers.filter(x=>x!==o) }
+  notify(msg){ this.observers.forEach(o=>o.update(msg)); showToast(`[${this.id}] ${msg}`,"info"); }
+  getBalance(){ return this.#balance }
+  deposit(amt){ if(amt<=0)return false; this.#balance+=amt; this.notify(`Deposit ${fmtMoney(amt)} | Bal=${fmtMoney(this.#balance)}`); return true }
+  withdraw(amt){ if(amt<=0)return false; if(amt>this.#balance){this.notify(`Withdrawal failed: ${fmtMoney(amt)}`);return false;} this.#balance-=amt; this.notify(`Withdraw ${fmtMoney(amt)} | Bal=${fmtMoney(this.#balance)}`); return true }
+  calculateInterest(){ const i=this.strategy.calculate(this.#balance); this.notify(`Interest calc: ${fmtMoney(i)}`); return i }
+  applyInterest(){ const i=this.calculateInterest(); if(i>0){ this.#balance+=i; this.notify(`Interest applied: ${fmtMoney(i)} | Bal=${fmtMoney(this.#balance)}`)} }
+}
+
+// ===== Command Pattern =====
+class Command{ execute(){} undo(){} }
+class DepositCommand extends Command{constructor(a,amt){super();this.a=a;this.amt=amt}execute(){this.ok=this.a.deposit(this.amt); return this.ok;}undo(){if(this.ok)this.a.withdraw(this.amt);}toString(){return `Deposit ${fmtMoney(this.amt)} -> ${this.a.id}`}}
+class WithdrawCommand extends Command{constructor(a,amt){super();this.a=a;this.amt=amt}execute(){this.ok=this.a.withdraw(this.amt);return this.ok;}undo(){if(this.ok)this.a.deposit(this.amt);}toString(){return `Withdraw ${fmtMoney(this.amt)} -> ${this.a.id}`}}
+class TransferCommand extends Command{constructor(f,t,amt){super();this.f=f;this.t=t;this.amt=amt}execute(){if(this.f.getBalance()>=this.amt){this.f.withdraw(this.amt);this.t.deposit(this.amt);this.ok=true;this.f.notify(`Transfer ${fmtMoney(this.amt)} to ${this.t.id}`);return true}else{this.f.notify("Transfer failed");return false}}undo(){if(this.ok){this.t.withdraw(this.amt);this.f.deposit(this.amt);this.f.notify(`Undo transfer ${fmtMoney(this.amt)}`)}}toString(){return `Transfer ${fmtMoney(this.amt)}: ${this.f.id}->${this.t.id}`}}
+class TransactionManager{constructor(){this.history=[]}execute(c){if(c.execute()){this.history.push(c); renderHistory(); updateCharts();}}undoLast(){const c=this.history.pop();if(c)c.undo(); renderHistory(); updateCharts();}clear(){this.history=[]; renderHistory(); updateCharts();}}
+const txnManager=new TransactionManager();
+
+// ===== App State =====
+const accounts=[]; let activeAccount=null;
+
+// ===== Functions =====
+function createAccount(name,type){
+  let strat;
+  if(type==="savings") strat=new SavingsInterest();
+  else if(type==="fixed") strat=new FixedDepositInterest();
+  else strat=new CurrentInterest();
+  const a=new Account(name,type,strat);
+  accounts.push(a);
+  renderAccounts(); renderTargets(); return a;
+}
+function setActiveAccount(a){ activeAccount=a; renderAccounts(); renderDetail(); renderTargets(); renderObservers(); updateCharts(); }
+function renderAccounts(){
+  const c=$("accounts"); c.innerHTML="";
+  accounts.forEach(a=>{
+    const el=document.createElement("div");
+    el.className="acct"+(a===activeAccount?" active":"");
+    el.onclick=()=>setActiveAccount(a);
+    el.innerHTML=`<div class="meta"><b>${a.id} - ${a.name}</b><small>${a.type}</small></div><div class="balance"><small>Bal: ${fmtMoney(a.getBalance())}</small></div>`;
+    c.appendChild(el);
+  });
+}
+function renderDetail(){
+  const p=$("detailPanel"); p.innerHTML="";
+  if(!activeAccount){ p.innerHTML='<div class="muted">Select or create an account on the left.</div>'; return; }
+  const a=activeAccount;
+  p.innerHTML=`<div style="display:flex;justify-content:space-between">
+      <div>
+        <h3>${a.name} <small>(${a.id})</small></h3>
+        <div class="muted">${a.type} account</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-weight:600">${fmtMoney(a.getBalance())}</div>
+        <small class="muted">Balance</small>
+      </div>
+    </div>
+    <div style="margin-top:12px"><button id="deleteAcct" class="btn danger">Close Account</button></div>`;
+  $("deleteAcct").onclick=()=>{
+    let bal=a.getBalance();
+    if(confirm(`Close ${a.id}?\nRemaining balance: ${fmtMoney(bal)}\nThis will auto-withdraw and delete the account.`)){
+      if(bal>0){ a.withdraw(bal); showToast(`Final settlement: ${fmtMoney(bal)} withdrawn`,"success"); }
+      accounts.splice(accounts.indexOf(a),1); activeAccount=accounts[0]||null;
+      renderAccounts(); renderDetail(); renderTargets(); updateCharts();
+    }
+  }
+}
+function renderTargets(){
+  const sel=$("targetAcct"); sel.innerHTML='<option value="">-- target account --</option>';
+  accounts.forEach(a=>{const o=document.createElement("option"); o.value=a.id; o.textContent=`${a.id} - ${a.name} (${fmtMoney(a.getBalance())})`; sel.appendChild(o);});
+}
+function renderObservers(){
+  if(!activeAccount) return;
+  const controls=$("#obsControls"); controls.querySelectorAll("input[type=checkbox]").forEach(cb=>{
+    cb.checked = activeAccount.observers.some(obs=>{
+      return (cb.dataset.obs==="email" && obs instanceof EmailObserver)
+          || (cb.dataset.obs==="sms" && obs instanceof SMSObserver)
+          || (cb.dataset.obs==="app" && obs instanceof AppObserver);
+    });
+    cb.onchange=()=>{
+      if(cb.checked){
+        if(cb.dataset.obs==="email") activeAccount.attach(new EmailObserver());
+        if(cb.dataset.obs==="sms") activeAccount.attach(new SMSObserver());
+        if(cb.dataset.obs==="app") activeAccount.attach(new AppObserver());
+      } else {
+        activeAccount.observers = activeAccount.observers.filter(o=>{
+          if(cb.dataset.obs==="email") return !(o instanceof EmailObserver);
+          if(cb.dataset.obs==="sms") return !(o instanceof SMSObserver);
+          if(cb.dataset.obs==="app") return !(o instanceof AppObserver);
+        });
+      }
+    }
+  });
+}
+function renderHistory(){
+  const h=$("history"); h.innerHTML="";
+  txnManager.history.slice().reverse().forEach(c=>{
+    const el=document.createElement("div"); el.className="txn";
+    if(c instanceof DepositCommand) el.classList.add("deposit");
+    else if(c instanceof WithdrawCommand) el.classList.add("withdraw");
+    el.textContent=c.toString(); h.appendChild(el);
+  });
+}
+
+// ===== Charts =====
+let balanceChart=null, txnChart=null;
+function updateCharts(){
+  const labels = accounts.map(a=>a.id);
+  const balances = accounts.map(a=>a.getBalance());
+  if(balanceChart){ balanceChart.data.labels=labels; balanceChart.data.datasets[0].data=balances; balanceChart.update(); }
+  else{ const ctx=$("balanceChart").getContext("2d"); balanceChart=new Chart(ctx,{type:'bar',data:{labels:labels,datasets:[{label:'Balance',data:balances,backgroundColor:'#2b6cb0'}]},options:{responsive:true,plugins:{legend:{display:false}}}});}
+  // Transactions chart
+  const txnLabels=txnManager.history.map((c,i)=>`#${i+1}`);
+  const deposits=txnManager.history.map(c=>(c instanceof DepositCommand||c instanceof TransferCommand?c.amt:0));
+  const withdrawals=txnManager.history.map(c=>(c instanceof WithdrawCommand||c instanceof TransferCommand?c.amt:0));
+  if(txnChart){ txnChart.data.labels=txnLabels; txnChart.data.datasets[0].data=deposits; txnChart.data.datasets[1].data=withdrawals; txnChart.update(); }
+  else{ const ctx2=$("txnChart").getContext("2d"); txnChart=new Chart(ctx2,{type:'bar',data:{labels:txnLabels,datasets:[{label:'Deposits',data:deposits,backgroundColor:'#38a169'},{label:'Withdrawals',data:withdrawals,backgroundColor:'#e53e3e'}]},options:{responsive:true}});}
+}
+
+// ===== UI Events =====
+$("createAcct").onclick=()=>{
+  const n=$("newName").value||"Unnamed"; const t=$("newType").value; const a=createAccount(n,t);
+  setActiveAccount(a); $("newName").value="";
+};
+$("execBtn").onclick=()=>{
+  if(!activeAccount) return alert("Select account"); const amt=parseFloat($("amountInput").value);
+  if(!amt||amt<=0) return alert("Enter amount"); const op=$("opType").value;
+  if(op==="deposit") txnManager.execute(new DepositCommand(activeAccount,amt));
+  else if(op==="withdraw") txnManager.execute(new WithdrawCommand(activeAccount,amt));
+  else if(op==="transfer"){ const tid=$("targetAcct").value; if(!tid) return alert("Select target"); const ta=accounts.find(x=>x.id===tid);
+    txnManager.execute(new TransferCommand(activeAccount,ta,amt)); }
+  renderAccounts(); renderDetail();
+};
+$("calcInterest").onclick=()=>{ if(activeAccount) alert("Interest: "+fmtMoney(activeAccount.calculateInterest())); }
+$("applyInterest").onclick=()=>{ if(activeAccount){ activeAccount.applyInterest(); renderAccounts(); renderDetail(); updateCharts(); } }
+$("undoBtn").onclick=()=>txnManager.undoLast();
+$("clearHistory").onclick=()=>txnManager.clear();
+</script>
+</body>
+</html>
